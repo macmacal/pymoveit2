@@ -2,6 +2,7 @@ from copy import deepcopy
 from typing import Optional, Tuple
 
 from geometry_msgs.msg import TwistStamped
+from control_msgs.msg import JointJog
 from rclpy.callback_groups import CallbackGroup
 from rclpy.node import Node
 from rclpy.qos import (
@@ -46,11 +47,21 @@ class MoveIt2Servo:
 
         self.namespace = namespace
 
-        # Create publisher
+        # Create publishers
         self.__twist_pub = self._node.create_publisher(
             msg_type=TwistStamped,
             # TODO: 1st PR: fix the typo
             topic="/servo_node/delta_twist_cmds",
+            qos_profile=QoSProfile(
+                durability=QoSDurabilityPolicy.VOLATILE,
+                reliability=QoSReliabilityPolicy.RELIABLE,
+                history=QoSHistoryPolicy.KEEP_ALL,
+            ),
+            callback_group=callback_group,
+        )
+        self.__jog_pub = self._node.create_publisher(
+            msg_type=JointJog,
+            topic="/servo_node/delta_joint_cmds",
             qos_profile=QoSProfile(
                 durability=QoSDurabilityPolicy.VOLATILE,
                 reliability=QoSReliabilityPolicy.RELIABLE,
@@ -120,18 +131,8 @@ class MoveIt2Servo:
         Input is scaled by `linear_speed` and `angular_speed`, respectively.
         """
 
-        if not self.is_enabled:
-            self._node.get_logger().warn(
-                "Command failed because MoveIt Servo is not yet enabled."
-            )
-            if enable_if_disabled:
-                self._node.get_logger().warn(
-                    f"Calling '{self.__start_service.srv_name}' service to enable MoveIt Servo..."
-                )
-                if not self.enable():
-                    return
-            else:
-                return
+        if not self.__ensure_enabled(enable_if_disabled):
+            return
 
         twist_msg = deepcopy(self.__twist_msg)
         twist_msg.header.stamp = self._node.get_clock().now().to_msg()
@@ -142,6 +143,47 @@ class MoveIt2Servo:
         twist_msg.twist.angular.y *= angular[1]
         twist_msg.twist.angular.z *= angular[2]
         self.__twist_pub.publish(twist_msg)
+        
+    def servo_jog(
+        self,
+        joint_names: Tuple[str, ...] = tuple(),
+        velocities: Tuple[float, ...] = tuple(),
+        enable_if_disabled: bool = True,
+    ):
+        """
+        Apply position and/or velocity commands to joints listed in joints_names.
+        Units are in meters or radians for position and m/s or rad/s for velocities.
+        """
+        
+        if not self.__ensure_enabled(enable_if_disabled):
+            return
+        
+        jog_msg = JointJog()
+        jog_msg.header.stamp = self._node.get_clock().now().to_msg()
+        jog_msg.header.frame_id = self.frame_id
+        jog_msg.joint_names = joint_names
+        print(f"JOG MSG vel: {jog_msg.velocities}")
+        print(f"JOG MSG len: {len(jog_msg.velocities)}")
+        print(f"type of jog msg vel: {type(jog_msg.velocities)}")
+        print(list(velocities))
+        jog_msg.velocities = [float(v) for v in velocities]
+        self.__jog_pub.publish(jog_msg)
+        
+    
+    def __ensure_enabled(self, enable_if_disabled: bool) -> bool:
+        if self.is_enabled:
+            return True
+
+        self._node.get_logger().warn(
+            "Command failed because MoveIt Servo is not yet enabled."
+        )
+        if enable_if_disabled:
+            self._node.get_logger().warn(
+                f"Calling '{self.__start_service.srv_name}' service to enable MoveIt Servo..."
+            )
+            if self.enable():
+                return True
+        return False
 
     def enable(
         self, wait_for_server_timeout_sec: Optional[float] = 1.0, sync: bool = False
