@@ -12,7 +12,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.node import Node
 
 from pymoveit2 import MoveIt2Servo
-from pymoveit2.robots import panda as robot
+# from pymoveit2.robots import panda as robot
 
 
 def main():
@@ -27,7 +27,8 @@ def main():
     # Create MoveIt 2 Servo interface
     moveit2_servo = MoveIt2Servo(
         node=node,
-        frame_id=robot.base_link_name(),
+        # frame_id=robot.base_link_name(),
+        frame_id="ur_base",
         callback_group=callback_group,
     )
 
@@ -35,10 +36,12 @@ def main():
         """Move in a circular motion using Servo"""
 
         now_sec = node.get_clock().now().nanoseconds * 1e-9
+        # Note, that we are providing velocities, which will be scaled with cooeficents and multiplied by publish peroid.
         moveit2_servo(linear=(sin(now_sec), cos(now_sec), 0.0), angular=(0.0, 0.0, 0.0))
+        node.get_logger().info(f"POS: x:{sin(now_sec)} y:{cos(now_sec)}")
 
-    # Create timer for moving in a circular motion
-    node.create_timer(0.2, servo_circular_motion)
+    # Create timer for moving in a circular motio
+    node.create_timer(0.004, servo_circular_motion)
 
     # Spin the node in background thread(s)
     executor = rclpy.executors.MultiThreadedExecutor(2)
